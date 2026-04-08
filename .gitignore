@@ -1,0 +1,28 @@
+# Built artifacts
+*.iml
+.gradle
+/local.properties
+/.idea
+/build
+/captures
+.externalNativeBuild
+.cxx
+
+# App build
+/app/build
+
+# Signing
+*.jks
+*.keystore
+
+# OS junk
+.DS_Store
+Thumbs.db
+
+# Kotlin
+*.class
+
+# Android Studio
+*.apk
+*.ap_
+*.dex
