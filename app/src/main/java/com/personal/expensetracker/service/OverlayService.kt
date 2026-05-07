@@ -15,9 +15,12 @@ import com.personal.expensetracker.data.local.AppDatabase
 import com.personal.expensetracker.data.local.entity.TransactionStatus
 import com.personal.expensetracker.ui.overlay.TransactionPopup
 import com.personal.expensetracker.ui.theme.ExpenseTrackerTheme
+import com.personal.expensetracker.util.AppConfig
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 
@@ -32,6 +35,7 @@ class OverlayService : Service() {
     private val serviceJob = SupervisorJob()
     private val serviceScope = CoroutineScope(Dispatchers.Main + serviceJob)
     private val lifecycleOwner = ServiceLifecycleOwner()
+    private var timeoutJob: Job? = null
 
     override fun onCreate() {
         super.onCreate()
@@ -105,9 +109,19 @@ class OverlayService : Service() {
         overlayView = view
         lifecycleOwner.handleLifecycleEvent(Lifecycle.Event.ON_RESUME)
         windowManager.addView(view, params)
+
+        timeoutJob?.cancel()
+        timeoutJob = serviceScope.launch {
+            delay(AppConfig.OVERLAY_TIMEOUT_SECONDS * 1000L)
+            // User did not interact — leave the transaction as UNCATEGORIZED
+            // (already its initial state) and fade the overlay away.
+            dismissOverlay()
+        }
     }
 
     private fun dismissOverlay() {
+        timeoutJob?.cancel()
+        timeoutJob = null
         overlayView?.let {
             lifecycleOwner.handleLifecycleEvent(Lifecycle.Event.ON_PAUSE)
             windowManager.removeView(it)

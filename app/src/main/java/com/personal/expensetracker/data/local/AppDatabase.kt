@@ -12,8 +12,8 @@ import com.personal.expensetracker.data.local.entity.*
         Transaction::class, Budget::class, SavingsGoal::class,
         Investment::class, Debt::class
     ],
-    version = 1,
-    exportSchema = false
+    version = 2,
+    exportSchema = true
 )
 @TypeConverters(Converters::class)
 abstract class AppDatabase : RoomDatabase() {
@@ -39,6 +39,9 @@ abstract class AppDatabase : RoomDatabase() {
                     "expense_tracker.db"
                 )
                     .addCallback(SeedCallback())
+                    // One-time destructive reset for v1→v2; v1 was unreleased.
+                    // Future migrations must use addMigrations(...).
+                    .fallbackToDestructiveMigration()
                     .build()
                 INSTANCE = instance
                 instance
@@ -76,9 +79,17 @@ abstract class AppDatabase : RoomDatabase() {
                 )
             }
 
-            // Seed default M-Pesa source
+            // Seed default SMS sources (M-Pesa and Airtel Money)
             db.execSQL(
-                "INSERT INTO sms_sources (sender, label, is_active) VALUES ('MPESA', 'M-Pesa', 1)"
+                "INSERT INTO sms_sources (sender, label, is_active) VALUES " +
+                    "('MPESA', 'M-Pesa', 1), ('AIRTELMONEY', 'Airtel Money', 1)"
+            )
+
+            // Partial unique index that Room cannot express — restrict the
+            // unique constraint to rows where reference is non-null.
+            db.execSQL(
+                "CREATE UNIQUE INDEX IF NOT EXISTS idx_txn_reference_time " +
+                    "ON transactions(reference, transacted_at) WHERE reference IS NOT NULL"
             )
         }
     }

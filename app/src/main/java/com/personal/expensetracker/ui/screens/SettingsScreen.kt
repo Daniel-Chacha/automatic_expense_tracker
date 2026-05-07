@@ -118,7 +118,7 @@ fun SettingsScreen(db: AppDatabase) {
         AlertDialog(
             onDismissRequest = { showAddAccount = false },
             title = { Text("New Account") },
-            text = { OutlinedTextField(value = name, onValueChange = { name = it }, label = { Text("Name (e.g. M-Pesa, KCB)") }, singleLine = true) },
+            text = { OutlinedTextField(value = name, onValueChange = { name = it }, label = { Text("Name (e.g. M-Pesa, Airtel Money)") }, singleLine = true) },
             confirmButton = { TextButton(onClick = { if (name.isNotBlank()) { scope.launch { db.accountDao().insert(Account(name = name)) }; showAddAccount = false } }) { Text("Save") } },
             dismissButton = { TextButton(onClick = { showAddAccount = false }) { Text("Cancel") } }
         )
@@ -133,7 +133,7 @@ fun SettingsScreen(db: AppDatabase) {
             title = { Text("New SMS Source") },
             text = {
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    OutlinedTextField(value = sender, onValueChange = { sender = it }, label = { Text("Sender (e.g. MPESA)") }, singleLine = true)
+                    OutlinedTextField(value = sender, onValueChange = { sender = it }, label = { Text("Sender (MPESA or AIRTELMONEY)") }, singleLine = true)
                     OutlinedTextField(value = label, onValueChange = { label = it }, label = { Text("Label (e.g. Safaricom M-Pesa)") }, singleLine = true)
                 }
             },

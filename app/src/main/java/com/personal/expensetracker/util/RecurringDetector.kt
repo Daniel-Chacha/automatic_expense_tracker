@@ -1,9 +1,7 @@
 package com.personal.expensetracker.util
 
 import com.personal.expensetracker.data.local.entity.Transaction
-import kotlinx.serialization.json.Json
-import kotlinx.serialization.json.jsonObject
-import kotlinx.serialization.json.jsonPrimitive
+import com.personal.expensetracker.data.local.entity.decodeMeta
 
 /**
  * Detects recurring transactions by grouping by counterparty + approximate amount.
@@ -19,9 +17,9 @@ object RecurringDetector {
     )
 
     fun detect(transactions: List<Transaction>, minOccurrences: Int = 2): List<RecurringPattern> {
-        // Extract counterparty from meta JSON
         val withCounterparty = transactions.mapNotNull { txn ->
-            val cp = extractCounterparty(txn.meta) ?: return@mapNotNull null
+            val cp = txn.counterparty ?: decodeMeta(txn.meta)?.counterparty
+            if (cp.isNullOrBlank()) return@mapNotNull null
             Triple(cp, txn.amount, txn)
         }
 
@@ -50,14 +48,5 @@ object RecurringDetector {
             }
             .filterNotNull()
             .sortedByDescending { it.occurrences }
-    }
-
-    private fun extractCounterparty(meta: String?): String? {
-        if (meta.isNullOrBlank()) return null
-        return try {
-            Json.parseToJsonElement(meta)
-                .jsonObject["counterparty"]
-                ?.jsonPrimitive?.content
-        } catch (_: Exception) { null }
     }
 }

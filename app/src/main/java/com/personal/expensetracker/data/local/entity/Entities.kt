@@ -65,7 +65,10 @@ data class SmsSource(
     ],
     indices = [
         Index("transacted_at"),
-        Index("category_id")
+        Index("category_id"),
+        Index("counterparty"),
+        Index("reference"),
+        Index(value = ["dedup_hash"], unique = true)
     ]
 )
 data class Transaction(
@@ -78,8 +81,13 @@ data class Transaction(
     val description: String? = null,
     @ColumnInfo(name = "transacted_at") val transactedAt: Long = System.currentTimeMillis(),
     val meta: String? = null,
+    val reference: String? = null,
+    val counterparty: String? = null,
+    @ColumnInfo(name = "dedup_hash") val dedupHash: String? = null,
     @ColumnInfo(name = "created_at") val createdAt: Long = System.currentTimeMillis(),
-    @ColumnInfo(name = "is_synced") val isSynced: Boolean = false
+    @ColumnInfo(name = "is_synced") val isSynced: Boolean = false,
+    @ColumnInfo(name = "last_sync_attempt_at") val lastSyncAttemptAt: Long? = null,
+    @ColumnInfo(name = "sync_failures") val syncFailures: Int = 0
 )
 
 @Entity(

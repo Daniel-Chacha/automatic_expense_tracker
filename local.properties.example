@@ -1,0 +1,10 @@
+# Copy to local.properties (gitignored) and fill in real values.
+# Never commit local.properties — it ships in BuildConfig of every APK build.
+
+# Android SDK location
+sdk.dir=/path/to/your/Android/Sdk
+
+# Neon Postgres JDBC URL.
+# Format: jdbc:postgresql://<endpoint>.neon.tech/<db>?user=<u>&password=<p>&sslmode=require&channelBinding=require
+# This file is read at build time and embedded into BuildConfig.NEON_JDBC_URL.
+NEON_JDBC_URL=

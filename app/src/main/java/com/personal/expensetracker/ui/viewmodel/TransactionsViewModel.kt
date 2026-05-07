@@ -1,10 +1,17 @@
 package com.personal.expensetracker.ui.viewmodel
 
+import android.util.Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
+import androidx.paging.Pager
+import androidx.paging.PagingConfig
+import androidx.paging.PagingData
+import androidx.paging.cachedIn
+import androidx.paging.filter
 import com.personal.expensetracker.data.local.AppDatabase
 import com.personal.expensetracker.data.local.entity.*
+import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
 
@@ -18,25 +25,33 @@ class TransactionsViewModel(private val db: AppDatabase) : ViewModel() {
     private val _searchQuery = MutableStateFlow("")
     val searchQuery: StateFlow<String> = _searchQuery
 
-    val transactions: StateFlow<List<Transaction>> = combine(
-        db.transactionDao().getAll(),
-        _filter,
-        _searchQuery
-    ) { all, filter, query ->
-        all.filter { txn ->
-            val matchesFilter = when (filter) {
-                TransactionFilter.ALL -> true
-                TransactionFilter.INCOME -> txn.type == TransactionType.INCOME
-                TransactionFilter.EXPENSE -> txn.type == TransactionType.EXPENSE
-                TransactionFilter.UNCATEGORIZED -> txn.status == TransactionStatus.UNCATEGORIZED
+    @OptIn(ExperimentalCoroutinesApi::class)
+    val pagedTransactions: Flow<PagingData<Transaction>> = combine(_filter, _searchQuery) { f, q -> f to q }
+        .flatMapLatest { (currentFilter, query) ->
+            Pager(PagingConfig(pageSize = 30, prefetchDistance = 10)) {
+                db.transactionDao().pagingSource()
+            }.flow.map { pagingData ->
+                pagingData.filter { txn ->
+                    val matchesFilter = when (currentFilter) {
+                        TransactionFilter.ALL -> true
+                        TransactionFilter.INCOME -> txn.type == TransactionType.INCOME
+                        TransactionFilter.EXPENSE -> txn.type == TransactionType.EXPENSE
+                        TransactionFilter.UNCATEGORIZED -> txn.status == TransactionStatus.UNCATEGORIZED
+                    }
+                    val matchesQuery = query.isBlank() ||
+                        txn.description?.contains(query, ignoreCase = true) == true ||
+                        txn.counterparty?.contains(query, ignoreCase = true) == true
+                    matchesFilter && matchesQuery
+                }
             }
-            val matchesQuery = query.isBlank() || txn.description?.contains(query, ignoreCase = true) == true
-                    || txn.meta?.contains(query, ignoreCase = true) == true
-            matchesFilter && matchesQuery
         }
-    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+        .cachedIn(viewModelScope)
 
     val categories = db.categoryDao().getAll()
+        .catch { e ->
+            Log.e(TAG, "categories flow error", e)
+            emit(emptyList())
+        }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
     fun setFilter(filter: TransactionFilter) {
@@ -64,6 +79,10 @@ class TransactionsViewModel(private val db: AppDatabase) : ViewModel() {
                 )
             )
         }
+    }
+
+    companion object {
+        private const val TAG = "TransactionsVM"
     }
 }
 

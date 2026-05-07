@@ -1,5 +1,6 @@
 package com.personal.expensetracker.data.local.dao
 
+import androidx.paging.PagingSource
 import androidx.room.*
 import com.personal.expensetracker.data.local.entity.*
 import kotlinx.coroutines.flow.Flow
@@ -92,6 +93,15 @@ interface TransactionDao {
     @Query("SELECT * FROM transactions WHERE is_synced = 0")
     suspend fun getUnsynced(): List<Transaction>
 
+    @Query("SELECT * FROM transactions WHERE reference = :ref LIMIT 1")
+    suspend fun findByReference(ref: String): Transaction?
+
+    @Query("SELECT * FROM transactions WHERE dedup_hash = :hash LIMIT 1")
+    suspend fun findByDedupHash(hash: String): Transaction?
+
+    @Query("SELECT * FROM transactions ORDER BY transacted_at DESC")
+    fun pagingSource(): PagingSource<Int, Transaction>
+
     @Query("""
         SELECT SUM(amount) FROM transactions 
         WHERE type = 'INCOME' AND transacted_at BETWEEN :start AND :end
@@ -135,11 +145,18 @@ interface TransactionDao {
     fun getSpentByCategory(start: Long, end: Long): Flow<List<CategorySpent>>
 
     @Query("""
-        SELECT category_id FROM transactions 
-        WHERE meta LIKE '%' || :counterparty || '%' AND category_id IS NOT NULL
+        SELECT category_id FROM transactions
+        WHERE counterparty = :counterparty AND category_id IS NOT NULL
         GROUP BY category_id ORDER BY COUNT(*) DESC LIMIT 1
     """)
     suspend fun getSuggestedCategory(counterparty: String): Int?
+
+    @Query("""
+        UPDATE transactions
+        SET sync_failures = sync_failures + 1, last_sync_attempt_at = :now
+        WHERE id IN (:ids)
+    """)
+    suspend fun recordSyncFailure(ids: List<Int>, now: Long)
 
     @Delete
     suspend fun delete(transaction: Transaction)

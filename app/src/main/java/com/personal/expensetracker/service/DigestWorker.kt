@@ -8,6 +8,7 @@ import androidx.core.app.NotificationCompat
 import androidx.work.*
 import com.personal.expensetracker.R
 import com.personal.expensetracker.data.local.AppDatabase
+import com.personal.expensetracker.util.AppConfig
 import com.personal.expensetracker.util.FormatUtils
 import kotlinx.coroutines.flow.first
 import java.util.Calendar
@@ -71,7 +72,7 @@ class DigestWorker(
             // Calculate delay to 8 PM today (or tomorrow if past 8 PM)
             val now = Calendar.getInstance()
             val target = Calendar.getInstance().apply {
-                set(Calendar.HOUR_OF_DAY, 20); set(Calendar.MINUTE, 0)
+                set(Calendar.HOUR_OF_DAY, AppConfig.DIGEST_HOUR); set(Calendar.MINUTE, 0)
                 set(Calendar.SECOND, 0)
                 if (before(now)) add(Calendar.DAY_OF_YEAR, 1)
             }

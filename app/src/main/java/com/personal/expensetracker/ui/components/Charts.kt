@@ -111,3 +111,51 @@ fun ChartLegend(
         }
     }
 }
+
+/**
+ * Simple line chart for monthly spend trend. Pure Compose — avoids tying
+ * the dashboard to Vico's still-shifting alpha API.
+ */
+@Composable
+fun MonthlyTrendChart(
+    points: List<Int>,
+    modifier: Modifier = Modifier
+) {
+    if (points.isEmpty()) {
+        Box(modifier = modifier.height(120.dp), contentAlignment = Alignment.Center) {
+            Text(
+                "Not enough data yet",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f)
+            )
+        }
+        return
+    }
+
+    val max = (points.max().coerceAtLeast(1)).toFloat()
+    val color = MaterialTheme.colorScheme.primary
+
+    Canvas(
+        modifier = modifier
+            .fillMaxWidth()
+            .height(120.dp)
+            .padding(8.dp)
+    ) {
+        if (points.size == 1) {
+            drawCircle(color = color, radius = 6f, center = Offset(size.width / 2, size.height / 2))
+            return@Canvas
+        }
+        val stepX = size.width / (points.size - 1).toFloat()
+        var prev: Offset? = null
+        points.forEachIndexed { idx, value ->
+            val x = idx * stepX
+            val y = size.height - (value / max) * size.height
+            val p = Offset(x, y)
+            prev?.let { from ->
+                drawLine(color = color, start = from, end = p, strokeWidth = 4f, cap = StrokeCap.Round)
+            }
+            drawCircle(color = color, radius = 4f, center = p)
+            prev = p
+        }
+    }
+}

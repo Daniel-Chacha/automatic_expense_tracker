@@ -12,9 +12,8 @@ data class ParsedTransaction(
 )
 
 /**
- * Parses transaction SMS messages from various providers.
- * Currently supports: M-Pesa
- * Add more parsers by extending the `parse` function.
+ * Parses transaction SMS messages from supported providers.
+ * Supported: M-Pesa, Airtel Money.
  */
 object SmsParser {
 
@@ -40,13 +39,40 @@ object SmsParser {
         RegexOption.IGNORE_CASE
     )
 
-    private val MPESA_BUY_GOODS = Regex(
-        """([A-Z0-9]+)\s+Confirmed\.\s*Ksh([\d,]+\.?\d*)\s+paid to\s+(.+?)\.\s""",
+    private val MPESA_BALANCE = Regex(
+        """balance\s+is\s+Ksh([\d,]+\.?\d*)""",
         RegexOption.IGNORE_CASE
     )
 
-    private val BALANCE_PATTERN = Regex(
-        """balance\s+is\s+Ksh([\d,]+\.?\d*)""",
+    // ── Airtel Money Patterns ─────────────────────────
+
+    private val AIRTEL_RECEIVED = Regex(
+        """received\s+Ksh\.?\s*([\d,]+\.?\d*)\s+from\s+(.+?)(?:\s+on|\.|,)""",
+        RegexOption.IGNORE_CASE
+    )
+
+    private val AIRTEL_SENT = Regex(
+        """(?:Ksh\.?\s*([\d,]+\.?\d*)\s+sent\s+to\s+(.+?)(?:\s+on|\.|,)|sent\s+Ksh\.?\s*([\d,]+\.?\d*)\s+to\s+(.+?)(?:\s+on|\.|,))""",
+        RegexOption.IGNORE_CASE
+    )
+
+    private val AIRTEL_PAID = Regex(
+        """paid\s+Ksh\.?\s*([\d,]+\.?\d*)\s+to\s+(.+?)(?:\s+on|\.|,)""",
+        RegexOption.IGNORE_CASE
+    )
+
+    private val AIRTEL_WITHDRAW = Regex(
+        """withdrawn?\s+Ksh\.?\s*([\d,]+\.?\d*)(?:\s+from\s+(.+?))?(?:\s+on|\.|,)""",
+        RegexOption.IGNORE_CASE
+    )
+
+    private val AIRTEL_REF = Regex(
+        """(?:Ref|TID|Transaction\s+ID)[:.\s]+([A-Z0-9]+)""",
+        RegexOption.IGNORE_CASE
+    )
+
+    private val AIRTEL_BALANCE = Regex(
+        """(?:new\s+balance|balance\s+is)\D+Ksh\.?\s*([\d,]+\.?\d*)""",
         RegexOption.IGNORE_CASE
     )
 
@@ -55,8 +81,9 @@ object SmsParser {
     fun parse(sender: String, body: String): ParsedTransaction? {
         return when {
             sender.contains("MPESA", ignoreCase = true) -> parseMpesa(body)
-            sender.contains("KCB", ignoreCase = true) -> parseKcb(body)
-            sender.contains("EQUITY", ignoreCase = true) -> parseEquity(body)
+            sender.contains("AIRTELMONEY", ignoreCase = true) ||
+                sender.contains("AIRTEL MONEY", ignoreCase = true) ||
+                sender.contains("AIRTEL", ignoreCase = true) -> parseAirtelmoney(body)
             else -> null
         }
     }
@@ -64,11 +91,10 @@ object SmsParser {
     // ── M-Pesa Parser ──────────────────────────────────
 
     private fun parseMpesa(body: String): ParsedTransaction? {
-        val balance = BALANCE_PATTERN.find(body)?.let {
+        val balance = MPESA_BALANCE.find(body)?.let {
             parseAmount(it.groupValues[1])
         }
 
-        // Try each pattern in order of specificity
         MPESA_RECEIVED.find(body)?.let { match ->
             return ParsedTransaction(
                 type = TransactionType.INCOME,
@@ -116,89 +142,56 @@ object SmsParser {
         return null
     }
 
-    // ── KCB Parser ────────────────────────────────────
+    // ── Airtel Money Parser ───────────────────────────
 
-    private val KCB_CREDIT = Regex(
-        """(?:credited|deposited|received)\D+Ksh\.?\s*([\\d,]+\.?\d*)""",
-        RegexOption.IGNORE_CASE
-    )
+    private fun parseAirtelmoney(body: String): ParsedTransaction? {
+        val balance = AIRTEL_BALANCE.find(body)?.let { parseAmount(it.groupValues[1]) }
+        val reference = AIRTEL_REF.find(body)?.groupValues?.get(1)
 
-    private val KCB_DEBIT = Regex(
-        """(?:debited|withdrawn|paid|sent)\D+Ksh\.?\s*([\\d,]+\.?\d*)""",
-        RegexOption.IGNORE_CASE
-    )
-
-    private val KCB_BALANCE = Regex(
-        """(?:balance|bal)[:\s]+Ksh\.?\s*([\\d,]+\.?\d*)""",
-        RegexOption.IGNORE_CASE
-    )
-
-    private fun parseKcb(body: String): ParsedTransaction? {
-        val balance = KCB_BALANCE.find(body)?.let { parseAmount(it.groupValues[1]) }
-
-        KCB_CREDIT.find(body)?.let { match ->
+        AIRTEL_RECEIVED.find(body)?.let { match ->
             return ParsedTransaction(
                 type = TransactionType.INCOME,
                 amount = parseAmount(match.groupValues[1]),
-                reference = null,
+                reference = reference,
                 balance = balance,
-                counterparty = "KCB",
+                counterparty = match.groupValues[2].trim(),
                 rawSms = body
             )
         }
 
-        KCB_DEBIT.find(body)?.let { match ->
+        AIRTEL_SENT.find(body)?.let { match ->
+            // The alternation has two arms; pick whichever group captured.
+            val amountStr = match.groupValues[1].ifEmpty { match.groupValues[3] }
+            val counterparty = match.groupValues[2].ifEmpty { match.groupValues[4] }
+            return ParsedTransaction(
+                type = TransactionType.EXPENSE,
+                amount = parseAmount(amountStr),
+                reference = reference,
+                balance = balance,
+                counterparty = counterparty.trim(),
+                rawSms = body
+            )
+        }
+
+        AIRTEL_PAID.find(body)?.let { match ->
             return ParsedTransaction(
                 type = TransactionType.EXPENSE,
                 amount = parseAmount(match.groupValues[1]),
-                reference = null,
+                reference = reference,
                 balance = balance,
-                counterparty = "KCB",
+                counterparty = match.groupValues[2].trim(),
                 rawSms = body
             )
         }
 
-        return null
-    }
-
-    // ── Equity Parser ─────────────────────────────────
-
-    private val EQUITY_CREDIT = Regex(
-        """(?:received|credited|deposit)\D+Kshs?\.?\s*([\\d,]+\.?\d*)""",
-        RegexOption.IGNORE_CASE
-    )
-
-    private val EQUITY_DEBIT = Regex(
-        """(?:withdrawn|debited|paid|sent)\D+Kshs?\.?\s*([\\d,]+\.?\d*)""",
-        RegexOption.IGNORE_CASE
-    )
-
-    private val EQUITY_BALANCE = Regex(
-        """(?:balance|bal)[:\s]+Kshs?\.?\s*([\\d,]+\.?\d*)""",
-        RegexOption.IGNORE_CASE
-    )
-
-    private fun parseEquity(body: String): ParsedTransaction? {
-        val balance = EQUITY_BALANCE.find(body)?.let { parseAmount(it.groupValues[1]) }
-
-        EQUITY_CREDIT.find(body)?.let { match ->
-            return ParsedTransaction(
-                type = TransactionType.INCOME,
-                amount = parseAmount(match.groupValues[1]),
-                reference = null,
-                balance = balance,
-                counterparty = "Equity",
-                rawSms = body
-            )
-        }
-
-        EQUITY_DEBIT.find(body)?.let { match ->
+        AIRTEL_WITHDRAW.find(body)?.let { match ->
+            val agent = match.groupValues.getOrNull(2)?.trim().orEmpty()
             return ParsedTransaction(
                 type = TransactionType.EXPENSE,
                 amount = parseAmount(match.groupValues[1]),
-                reference = null,
+                reference = reference,
                 balance = balance,
-                counterparty = "Equity",
+                counterparty = if (agent.isNotEmpty()) "Agent $agent" else "Airtel Money Withdrawal",
                 rawSms = body
             )
         }

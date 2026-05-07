@@ -1,9 +1,13 @@
 # Room
 -keep class com.personal.expensetracker.data.local.entity.** { *; }
 
-# Supabase + Ktor
--keep class io.github.jan.supabase.** { *; }
--keep class io.ktor.** { *; }
+# PostgreSQL JDBC driver (Neon)
+-keep class org.postgresql.** { *; }
+-keep class org.postgresql.Driver
+-dontwarn org.postgresql.**
+-dontwarn javax.naming.**
+-dontwarn javax.security.sasl.**
+-dontwarn org.slf4j.**
 
 # Kotlinx Serialization
 -keepattributes *Annotation*, InnerClasses

@@ -2,7 +2,6 @@ package com.personal.expensetracker.ui.screens
 
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.*
@@ -11,6 +10,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.paging.compose.collectAsLazyPagingItems
 import com.personal.expensetracker.ui.components.TransactionCard
 import com.personal.expensetracker.ui.viewmodel.TransactionFilter
 import com.personal.expensetracker.ui.viewmodel.TransactionsViewModel
@@ -21,7 +21,7 @@ fun TransactionsScreen(
     viewModel: TransactionsViewModel,
     onAddClick: () -> Unit = {}
 ) {
-    val transactions by viewModel.transactions.collectAsStateWithLifecycle()
+    val pagingItems = viewModel.pagedTransactions.collectAsLazyPagingItems()
     val filter by viewModel.filter.collectAsStateWithLifecycle()
     val searchQuery by viewModel.searchQuery.collectAsStateWithLifecycle()
     val categories by viewModel.categories.collectAsStateWithLifecycle()
@@ -29,7 +29,6 @@ fun TransactionsScreen(
     val categoryMap = remember(categories) { categories.associateBy { it.id } }
 
     Column(modifier = Modifier.fillMaxSize()) {
-        // ── Search Bar ──
         OutlinedTextField(
             value = searchQuery,
             onValueChange = { viewModel.setSearchQuery(it) },
@@ -42,7 +41,6 @@ fun TransactionsScreen(
             shape = MaterialTheme.shapes.extraLarge
         )
 
-        // ── Filter Chips ──
         Row(
             modifier = Modifier
                 .fillMaxWidth()
@@ -60,8 +58,7 @@ fun TransactionsScreen(
 
         Spacer(modifier = Modifier.height(8.dp))
 
-        // ── Transaction List ──
-        if (transactions.isEmpty()) {
+        if (pagingItems.itemCount == 0) {
             Box(
                 modifier = Modifier
                     .fillMaxSize()
@@ -83,7 +80,11 @@ fun TransactionsScreen(
                 contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
                 verticalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                items(transactions, key = { it.id }) { txn ->
+                items(
+                    count = pagingItems.itemCount,
+                    key = { idx -> pagingItems[idx]?.id ?: idx }
+                ) { idx ->
+                    val txn = pagingItems[idx] ?: return@items
                     val cat = txn.categoryId?.let { categoryMap[it] }
                     TransactionCard(
                         transaction = txn,

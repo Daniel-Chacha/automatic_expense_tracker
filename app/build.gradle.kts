@@ -24,10 +24,14 @@ android {
         targetSdk = 35
         versionCode = 1
         versionName = "1.0"
+        multiDexEnabled = true
 
         // Read from local.properties — never hardcode real values here
-        buildConfigField("String", "SUPABASE_URL", "\"${localProps.getProperty("SUPABASE_URL", "")}\"")
-        buildConfigField("String", "SUPABASE_KEY", "\"${localProps.getProperty("SUPABASE_KEY", "")}\"")
+        buildConfigField(
+            "String",
+            "NEON_JDBC_URL",
+            "\"${localProps.getProperty("NEON_JDBC_URL", "")}\""
+        )
     }
 
     buildTypes {
@@ -43,6 +47,7 @@ android {
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
+        isCoreLibraryDesugaringEnabled = true
     }
 
     kotlinOptions {
@@ -53,6 +58,31 @@ android {
         compose = true
         buildConfig = true
     }
+
+    packaging {
+        resources {
+            // Postgres driver ships duplicated META-INF/* resources
+            excludes += setOf(
+                "META-INF/INDEX.LIST",
+                "META-INF/io.netty.versions.properties",
+                "META-INF/LICENSE*",
+                "META-INF/NOTICE*"
+            )
+        }
+    }
+
+    testOptions {
+        unitTests.isIncludeAndroidResources = true
+    }
+}
+
+ksp {
+    arg("room.schemaLocation", "$projectDir/schemas")
+}
+
+configurations.all {
+    // Windows-only SSPI auth, drags in JNA we do not need.
+    exclude(group = "com.github.waffle", module = "waffle-jna")
 }
 
 dependencies {
@@ -75,23 +105,50 @@ dependencies {
     // Lifecycle
     implementation("androidx.lifecycle:lifecycle-runtime-compose:2.8.7")
     implementation("androidx.lifecycle:lifecycle-viewmodel-compose:2.8.7")
+    implementation("androidx.lifecycle:lifecycle-service:2.8.7")
 
     // Room (local DB)
     val roomVersion = "2.6.1"
     implementation("androidx.room:room-runtime:$roomVersion")
     implementation("androidx.room:room-ktx:$roomVersion")
+    implementation("androidx.room:room-paging:$roomVersion")
     ksp("androidx.room:room-compiler:$roomVersion")
 
-    // Supabase (sync)
-    implementation("io.github.jan-tennert.supabase:postgrest-kt:2.6.1")
-    implementation("io.ktor:ktor-client-android:2.3.12")
+    // Paging 3
+    implementation("androidx.paging:paging-runtime-ktx:3.3.5")
+    implementation("androidx.paging:paging-compose:3.3.5")
 
-    // WorkManager (background sync)
+    // Neon over PostgreSQL JDBC
+    implementation("org.postgresql:postgresql:42.7.4")
+
+    // WorkManager (background sync + alerts)
     implementation("androidx.work:work-runtime-ktx:2.10.0")
 
-    // Biometric (app lock)
-    implementation("androidx.biometric:biometric:1.1.0")
+    // Charts: pure-Compose Canvas implementation in ui/components/Charts.kt.
+    // Vico evaluated and skipped — its 2.x API is still alpha and the trend
+    // chart we need is small enough to draw directly.
 
-    // Serialization (required by Supabase client)
+    // Serialization
     implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.7.3")
+
+    // Coroutines
+    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.9.0")
+
+    // Multidex (Postgres driver pushes class count over the limit)
+    implementation("androidx.multidex:multidex:2.0.1")
+
+    // Core library desugaring (java.time / java.sql on minSdk 26)
+    coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:2.1.2")
+
+    // Unit tests
+    testImplementation("junit:junit:4.13.2")
+    testImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:1.9.0")
+    testImplementation("io.mockk:mockk:1.13.13")
+    testImplementation("app.cash.turbine:turbine:1.1.0")
+
+    // Instrumentation tests
+    androidTestImplementation("androidx.test.ext:junit:1.2.1")
+    androidTestImplementation("androidx.test:runner:1.6.2")
+    androidTestImplementation("androidx.room:room-testing:$roomVersion")
+    androidTestImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:1.9.0")
 }

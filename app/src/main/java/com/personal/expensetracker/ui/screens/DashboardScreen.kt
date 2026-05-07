@@ -20,6 +20,7 @@ import com.personal.expensetracker.data.local.entity.DebtDirection
 import com.personal.expensetracker.ui.components.ChartLegend
 import com.personal.expensetracker.ui.components.ChartSegment
 import com.personal.expensetracker.ui.components.DonutChart
+import com.personal.expensetracker.ui.components.MonthlyTrendChart
 import com.personal.expensetracker.ui.components.TransactionCard
 import com.personal.expensetracker.ui.navigation.SubRoutes
 import com.personal.expensetracker.ui.theme.Expense
@@ -46,9 +47,23 @@ fun DashboardScreen(
     val savingsGoals by viewModel.savingsGoals.collectAsStateWithLifecycle()
     val investmentTotal by viewModel.investments.collectAsStateWithLifecycle()
     val activeDebts by viewModel.activeDebts.collectAsStateWithLifecycle()
+    val recurring by viewModel.recurring.collectAsStateWithLifecycle()
 
     val categoryMap = remember(categories) { categories.associateBy { it.id } }
     val spentMap = remember(spentByCategory) { spentByCategory.associate { it.categoryId to it.total } }
+    val recentTrend = remember(recentTransactions) {
+        // Group last 30 days into 6 buckets of 5 days each, summing expenses.
+        val now = System.currentTimeMillis()
+        val bucketMs = 5L * 24 * 60 * 60 * 1000
+        val buckets = IntArray(6)
+        recentTransactions
+            .filter { it.type == com.personal.expensetracker.data.local.entity.TransactionType.EXPENSE }
+            .forEach { txn ->
+                val daysAgo = ((now - txn.transactedAt) / bucketMs).toInt()
+                if (daysAgo in 0..5) buckets[5 - daysAgo] += txn.amount
+            }
+        buckets.toList()
+    }
 
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
@@ -164,6 +179,35 @@ fun DashboardScreen(
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(16.dp), verticalAlignment = Alignment.CenterVertically) {
                     DonutChart(segments = segments, centerText = FormatUtils.formatAmountShort(totalExpense))
                     ChartLegend(segments = segments, modifier = Modifier.weight(1f))
+                }
+            }
+        }
+
+        // ── Spend Trend (last 30 days, 5-day buckets) ──
+        if (recentTrend.any { it > 0 }) {
+            item { Text("Spend Trend", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold) }
+            item {
+                Surface(shape = RoundedCornerShape(12.dp), color = MaterialTheme.colorScheme.surfaceVariant) {
+                    MonthlyTrendChart(points = recentTrend, modifier = Modifier.fillMaxWidth())
+                }
+            }
+        }
+
+        // ── Recurring Patterns ──
+        if (recurring.isNotEmpty()) {
+            item { Text("Recurring", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold) }
+            items(recurring, key = { it.counterparty }) { pattern ->
+                Surface(shape = RoundedCornerShape(12.dp), color = MaterialTheme.colorScheme.surfaceVariant) {
+                    Row(Modifier.fillMaxWidth().padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Column(Modifier.weight(1f)) {
+                            Text(pattern.counterparty, fontWeight = FontWeight.Medium)
+                            Text(
+                                "${pattern.occurrences}× • avg ${FormatUtils.formatAmount(pattern.averageAmount)}",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurface.copy(0.6f)
+                            )
+                        }
+                    }
                 }
             }
         }

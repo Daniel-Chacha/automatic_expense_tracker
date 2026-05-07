@@ -4,12 +4,14 @@ import android.content.Context
 import android.util.Log
 import androidx.work.*
 import com.personal.expensetracker.data.local.AppDatabase
-import com.personal.expensetracker.data.remote.SyncManager
+import com.personal.expensetracker.data.remote.TransactionRepository
+import com.personal.expensetracker.data.remote.TransactionRepository.SyncOutcome
+import com.personal.expensetracker.util.AppConfig
 import java.util.concurrent.TimeUnit
 
 /**
- * WorkManager worker that periodically syncs unsynced transactions to Supabase.
- * Runs every 15 minutes when the device has network connectivity.
+ * Periodically pushes unsynced transactions to Neon.
+ * Runs every AppConfig.SYNC_INTERVAL_MINUTES when the device has network.
  */
 class SyncWorker(
     context: Context,
@@ -18,15 +20,19 @@ class SyncWorker(
 
     override suspend fun doWork(): Result {
         val db = AppDatabase.getInstance(applicationContext)
-        val syncManager = SyncManager(db)
-
-        val count = syncManager.syncTransactions()
-        return if (count >= 0) {
-            Log.d(TAG, "Sync complete: $count transactions pushed")
-            Result.success()
-        } else {
-            Log.w(TAG, "Sync failed, will retry")
-            Result.retry()
+        return when (val outcome = TransactionRepository(db).syncTransactions()) {
+            is SyncOutcome.Success -> {
+                Log.d(TAG, "Sync complete: ${outcome.count} transactions pushed")
+                Result.success()
+            }
+            is SyncOutcome.TransientFailure -> {
+                Log.w(TAG, "Transient sync failure (${outcome.reason}), will retry")
+                Result.retry()
+            }
+            is SyncOutcome.PermanentFailure -> {
+                Log.e(TAG, "Permanent sync failure (${outcome.reason})")
+                Result.failure()
+            }
         }
     }
 
@@ -34,16 +40,13 @@ class SyncWorker(
         private const val TAG = "SyncWorker"
         private const val WORK_NAME = "expense_sync"
 
-        /**
-         * Schedule periodic sync every 15 minutes when connected.
-         */
         fun schedule(context: Context) {
             val constraints = Constraints.Builder()
                 .setRequiredNetworkType(NetworkType.CONNECTED)
                 .build()
 
             val request = PeriodicWorkRequestBuilder<SyncWorker>(
-                15, TimeUnit.MINUTES
+                AppConfig.SYNC_INTERVAL_MINUTES, TimeUnit.MINUTES
             )
                 .setConstraints(constraints)
                 .setBackoffCriteria(
@@ -59,12 +62,9 @@ class SyncWorker(
                 request
             )
 
-            Log.d(TAG, "Periodic sync scheduled (every 15 min, when connected)")
+            Log.d(TAG, "Periodic sync scheduled (every ${AppConfig.SYNC_INTERVAL_MINUTES} min, when connected)")
         }
 
-        /**
-         * Trigger an immediate one-shot sync.
-         */
         fun syncNow(context: Context) {
             val constraints = Constraints.Builder()
                 .setRequiredNetworkType(NetworkType.CONNECTED)
