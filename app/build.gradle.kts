@@ -15,15 +15,15 @@ val localProps = Properties().apply {
 }
 
 android {
-    namespace = "com.personal.expensetracker"
+    namespace = "com.personal.financetracker"
     compileSdk = 35
 
     defaultConfig {
-        applicationId = "com.personal.expensetracker"
+        applicationId = "com.personal.financetracker"
         minSdk = 26
         targetSdk = 35
-        versionCode = 1
-        versionName = "1.0"
+        versionCode = 2
+        versionName = "1.1.0"
         multiDexEnabled = true
 
         // Read from local.properties — never hardcode real values here
@@ -34,9 +34,22 @@ android {
         )
     }
 
+    signingConfigs {
+        create("release") {
+            val ksFile = localProps.getProperty("KEYSTORE_FILE")
+            if (!ksFile.isNullOrBlank()) {
+                storeFile = file(ksFile)
+                storePassword = localProps.getProperty("KEYSTORE_PASSWORD")
+                keyAlias = localProps.getProperty("KEY_ALIAS")
+                keyPassword = localProps.getProperty("KEY_PASSWORD")
+            }
+        }
+    }
+
     buildTypes {
         release {
             isMinifyEnabled = true
+            signingConfig = signingConfigs.getByName("release")
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
@@ -108,7 +121,7 @@ dependencies {
     implementation("androidx.lifecycle:lifecycle-service:2.8.7")
 
     // Room (local DB)
-    val roomVersion = "2.6.1"
+    val roomVersion = "2.7.0"
     implementation("androidx.room:room-runtime:$roomVersion")
     implementation("androidx.room:room-ktx:$roomVersion")
     implementation("androidx.room:room-paging:$roomVersion")

@@ -1,5 +1,5 @@
 # Room
--keep class com.personal.expensetracker.data.local.entity.** { *; }
+-keep class com.personal.financetracker.data.local.entity.** { *; }
 
 # PostgreSQL JDBC driver (Neon)
 -keep class org.postgresql.** { *; }
@@ -14,6 +14,6 @@
 -dontnote kotlinx.serialization.AnnotationsKt
 -keepclassmembers class kotlinx.serialization.json.** { *** Companion; }
 -keepclasseswithmembers class kotlinx.serialization.json.** { kotlinx.serialization.KSerializer serializer(...); }
--keep,includedescriptorclasses class com.personal.expensetracker.**$$serializer { *; }
--keepclassmembers class com.personal.expensetracker.** { *** Companion; }
--keepclasseswithmembers class com.personal.expensetracker.** { kotlinx.serialization.KSerializer serializer(...); }
+-keep,includedescriptorclasses class com.personal.financetracker.**$$serializer { *; }
+-keepclassmembers class com.personal.financetracker.** { *** Companion; }
+-keepclasseswithmembers class com.personal.financetracker.** { kotlinx.serialization.KSerializer serializer(...); }

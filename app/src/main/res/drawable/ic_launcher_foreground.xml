@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <group
+        android:translateX="24"
+        android:translateY="24">
+        <!-- Dollar sign icon -->
+        <path
+            android:fillColor="#FFFFFF"
+            android:pathData="M30,10 L30,14 C22,15 16,20 16,28 C16,36 22,40 30,42 C38,44 40,47 40,50 C40,54 37,56 30,56 C23,56 18,53 16,48 L8,52 C12,59 20,63 30,64 L30,68 L36,68 L36,64 C44,63 50,57 50,50 C50,42 44,38 36,36 C28,34 26,31 26,28 C26,24 29,22 34,22 C39,22 42,24 44,28 L52,24 C48,17 42,14 36,14 L36,10 Z" />
+    </group>
+</vector>

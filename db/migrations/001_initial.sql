@@ -1,5 +1,5 @@
 -- ============================================================
--- Expense Tracker — Initial Schema (Neon Postgres)
+-- Finance Tracker — Initial Schema (Neon Postgres)
 -- Single-user personal app, no auth, no RLS.
 -- Apply with: psql "$NEON_JDBC_URL" -f db/migrations/001_initial.sql
 -- ============================================================

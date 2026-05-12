@@ -8,3 +8,13 @@ sdk.dir=/path/to/your/Android/Sdk
 # Format: jdbc:postgresql://<endpoint>.neon.tech/<db>?user=<u>&password=<p>&sslmode=require&channelBinding=require
 # This file is read at build time and embedded into BuildConfig.NEON_JDBC_URL.
 NEON_JDBC_URL=
+
+# Release signing. Generate the keystore once with:
+#   keytool -genkey -v -keystore ~/keystores/finance-tracker.jks \
+#     -keyalg RSA -keysize 2048 -validity 10000 -alias finance-tracker
+# Back up the .jks file — losing it means you can never update existing installs.
+# Already covered by *.jks in .gitignore, so it won't be committed.
+KEYSTORE_FILE=
+KEYSTORE_PASSWORD=
+KEY_ALIAS=
+KEY_PASSWORD=
