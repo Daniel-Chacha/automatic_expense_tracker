@@ -30,4 +30,7 @@ object SubRoutes {
     const val SAVINGS = "savings"
     const val INVESTMENTS = "investments"
     const val DEBTS = "debts"
+
+    const val TRANSACTION_DETAIL_PATTERN = "transaction/{id}"
+    fun transactionDetail(id: Int) = "transaction/$id"
 }

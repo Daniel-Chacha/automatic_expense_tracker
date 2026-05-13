@@ -97,6 +97,9 @@ class OverlayService : Service() {
                                     )
                                 )
                             }
+                            // The overlay finished the categorization, so the
+                            // fallback notification is no longer needed.
+                            TransactionNotification.dismiss(this@OverlayService, transactionId)
                             dismissOverlay()
                         }
                     },

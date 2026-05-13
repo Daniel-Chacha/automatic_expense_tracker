@@ -4,7 +4,9 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Add
@@ -15,9 +17,11 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.personal.financetracker.data.HardDeletionService
 import com.personal.financetracker.data.local.AppDatabase
 import com.personal.financetracker.data.local.entity.Budget
 import com.personal.financetracker.data.local.entity.Category
+import com.personal.financetracker.ui.components.DeleteConfirmDialog
 import com.personal.financetracker.ui.theme.Expense
 import com.personal.financetracker.ui.theme.Income
 import com.personal.financetracker.util.FormatUtils
@@ -116,13 +120,24 @@ fun BudgetScreen(db: AppDatabase, onBack: () -> Unit) {
             onDismissRequest = { showAddDialog = false },
             title = { Text("Set Budget") },
             text = {
-                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    unbugeted.forEach { cat ->
-                        FilterChip(
-                            selected = selectedCatId == cat.id,
-                            onClick = { selectedCatId = cat.id },
-                            label = { Text("${cat.icon ?: "📦"} ${cat.name}") }
-                        )
+                Column(
+                    modifier = Modifier
+                        .heightIn(max = 480.dp)
+                        .verticalScroll(rememberScrollState()),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    unbugeted.chunked(2).forEach { pair ->
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            pair.forEach { cat ->
+                                FilterChip(
+                                    selected = selectedCatId == cat.id,
+                                    onClick = { selectedCatId = cat.id },
+                                    label = { Text("${cat.icon ?: "📦"} ${cat.name}") },
+                                    modifier = Modifier.weight(1f)
+                                )
+                            }
+                            if (pair.size == 1) Spacer(Modifier.weight(1f))
+                        }
                     }
                     OutlinedTextField(
                         value = amountText,
@@ -146,6 +161,8 @@ fun BudgetScreen(db: AppDatabase, onBack: () -> Unit) {
         )
     }
 
+    var deletingBudget by remember { mutableStateOf<Budget?>(null) }
+
     editingBudget?.let { budget ->
         val cat = categories.firstOrNull { it.id == budget.categoryId }
         var amountText by remember(budget.id) { mutableStateOf(String.format("%.2f", budget.amount / 100.0)) }
@@ -165,7 +182,15 @@ fun BudgetScreen(db: AppDatabase, onBack: () -> Unit) {
                 TextButton(onClick = {
                     val amt = ((amountText.toDoubleOrNull() ?: 0.0) * 100).toInt()
                     if (amt > 0) {
-                        scope.launch { db.budgetDao().insert(budget.copy(amount = amt)) }
+                        scope.launch {
+                            // Bump updatedAt so the sync watermark sees the edit.
+                            db.budgetDao().insert(
+                                budget.copy(
+                                    amount = amt,
+                                    updatedAt = System.currentTimeMillis()
+                                )
+                            )
+                        }
                         editingBudget = null
                     }
                 }) { Text("Save") }
@@ -173,7 +198,7 @@ fun BudgetScreen(db: AppDatabase, onBack: () -> Unit) {
             dismissButton = {
                 Row {
                     TextButton(onClick = {
-                        scope.launch { db.budgetDao().delete(budget) }
+                        deletingBudget = budget
                         editingBudget = null
                     }) {
                         Text("Delete", color = MaterialTheme.colorScheme.error)
@@ -181,6 +206,18 @@ fun BudgetScreen(db: AppDatabase, onBack: () -> Unit) {
                     Spacer(Modifier.width(4.dp))
                     TextButton(onClick = { editingBudget = null }) { Text("Cancel") }
                 }
+            }
+        )
+    }
+
+    deletingBudget?.let { budget ->
+        val cat = categories.firstOrNull { it.id == budget.categoryId }
+        DeleteConfirmDialog(
+            itemDescription = "the budget for ${cat?.name ?: "this category"}",
+            onDismiss = { deletingBudget = null },
+            onConfirm = {
+                scope.launch { HardDeletionService.deleteBudget(db, budget) }
+                deletingBudget = null
             }
         )
     }

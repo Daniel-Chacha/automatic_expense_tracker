@@ -16,8 +16,10 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.personal.financetracker.data.HardDeletionService
 import com.personal.financetracker.data.local.AppDatabase
 import com.personal.financetracker.data.local.entity.SavingsGoal
+import com.personal.financetracker.ui.components.DeleteConfirmDialog
 import com.personal.financetracker.ui.theme.Income
 import com.personal.financetracker.util.FormatUtils
 import kotlinx.coroutines.launch
@@ -109,26 +111,41 @@ fun SavingsScreen(db: AppDatabase, onBack: () -> Unit) {
         )
     }
 
+    var deletingGoal by remember { mutableStateOf<SavingsGoal?>(null) }
+
     editGoal?.let { goal ->
         SavingsGoalDialog(
             initial = goal,
             onDismiss = { editGoal = null },
             onSave = { name, target, current ->
                 scope.launch {
+                    // Bump updatedAt so MetadataSyncRepository pushes the edit.
                     db.savingsGoalDao().update(
                         goal.copy(
                             name = name,
                             targetAmount = target,
                             currentAmount = current,
-                            isCompleted = current >= target
+                            isCompleted = current >= target,
+                            updatedAt = System.currentTimeMillis()
                         )
                     )
                 }
                 editGoal = null
             },
             onDelete = {
-                scope.launch { db.savingsGoalDao().delete(goal) }
+                deletingGoal = goal
                 editGoal = null
+            }
+        )
+    }
+
+    deletingGoal?.let { goal ->
+        DeleteConfirmDialog(
+            itemDescription = "the savings goal \"${goal.name}\"",
+            onDismiss = { deletingGoal = null },
+            onConfirm = {
+                scope.launch { HardDeletionService.deleteSavingsGoal(db, goal) }
+                deletingGoal = null
             }
         )
     }

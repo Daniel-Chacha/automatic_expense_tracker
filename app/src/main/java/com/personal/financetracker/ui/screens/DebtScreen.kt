@@ -14,9 +14,11 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.personal.financetracker.data.HardDeletionService
 import com.personal.financetracker.data.local.AppDatabase
 import com.personal.financetracker.data.local.entity.Debt
 import com.personal.financetracker.data.local.entity.DebtDirection
+import com.personal.financetracker.ui.components.DeleteConfirmDialog
 import com.personal.financetracker.ui.theme.Expense
 import com.personal.financetracker.ui.theme.Income
 import com.personal.financetracker.ui.theme.Warning
@@ -117,19 +119,40 @@ fun DebtScreen(db: AppDatabase, onBack: () -> Unit) {
         )
     }
 
+    var deletingDebt by remember { mutableStateOf<Debt?>(null) }
+
     editDebt?.let { debt ->
         DebtDialog(
             initial = debt,
             onDismiss = { editDebt = null },
             onSave = { person, amount, direction ->
                 scope.launch {
-                    db.debtDao().update(debt.copy(person = person, amount = amount, direction = direction))
+                    // Bump updatedAt so MetadataSyncRepository pushes the edit.
+                    db.debtDao().update(
+                        debt.copy(
+                            person = person,
+                            amount = amount,
+                            direction = direction,
+                            updatedAt = System.currentTimeMillis()
+                        )
+                    )
                 }
                 editDebt = null
             },
             onDelete = {
-                scope.launch { db.debtDao().delete(debt) }
+                deletingDebt = debt
                 editDebt = null
+            }
+        )
+    }
+
+    deletingDebt?.let { debt ->
+        DeleteConfirmDialog(
+            itemDescription = "the debt entry for ${debt.person}",
+            onDismiss = { deletingDebt = null },
+            onConfirm = {
+                scope.launch { HardDeletionService.deleteDebt(db, debt) }
+                deletingDebt = null
             }
         )
     }

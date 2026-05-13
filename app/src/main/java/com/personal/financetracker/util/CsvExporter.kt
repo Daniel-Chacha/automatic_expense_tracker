@@ -8,7 +8,6 @@ import android.os.Build
 import android.os.Environment
 import android.provider.MediaStore
 import androidx.core.content.FileProvider
-import com.personal.financetracker.data.local.entity.Account
 import com.personal.financetracker.data.local.entity.Budget
 import com.personal.financetracker.data.local.entity.Category
 import com.personal.financetracker.data.local.entity.Debt
@@ -30,7 +29,6 @@ object CsvExporter {
     data class ExportPayload(
         val transactions: List<Transaction>,
         val categories: List<Category>,
-        val accounts: List<Account>,
         val budgets: List<Budget>,
         val savingsGoals: List<SavingsGoal>,
         val investments: List<Investment>,
@@ -54,15 +52,13 @@ object CsvExporter {
 
     fun buildAll(payload: ExportPayload): String {
         val categoriesById = payload.categories.associateBy { it.id }
-        val accountsById = payload.accounts.associateBy { it.id }
         val sb = StringBuilder()
 
         // ── Transactions ──
         sb.appendLine("# Transactions")
-        sb.appendLine("Date,Type,Amount (KES),Category,Account,Counterparty,Description,Status,Reference")
+        sb.appendLine("Date,Type,Amount (KES),Category,Counterparty,Description,Status,Reference")
         payload.transactions.forEach { txn ->
             val cat = txn.categoryId?.let { categoriesById[it]?.name } ?: "Uncategorized"
-            val acc = txn.accountId?.let { accountsById[it]?.name } ?: ""
             val cp = txn.counterparty ?: decodeMeta(txn.meta)?.counterparty.orEmpty()
             val ref = txn.reference ?: decodeMeta(txn.meta)?.ref.orEmpty()
             sb.appendLine(
@@ -71,7 +67,6 @@ object CsvExporter {
                     txn.type.name,
                     money(txn.amount),
                     cat,
-                    acc,
                     cp,
                     txn.description.orEmpty(),
                     txn.status.name,
@@ -86,14 +81,6 @@ object CsvExporter {
         sb.appendLine("Name,Type,Icon,Color")
         payload.categories.forEach { c ->
             sb.appendLine(row(c.name, if (c.isIncome) "Income" else "Expense", c.icon.orEmpty(), c.color.orEmpty()))
-        }
-
-        // ── Accounts ──
-        sb.appendLine()
-        sb.appendLine("# Accounts")
-        sb.appendLine("Name,Balance (KES),Icon")
-        payload.accounts.forEach { a ->
-            sb.appendLine(row(a.name, money(a.balance), a.icon.orEmpty()))
         }
 
         // ── Budgets ──

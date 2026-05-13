@@ -4,6 +4,9 @@ import android.content.Context
 import android.util.Log
 import androidx.work.*
 import com.personal.financetracker.data.local.AppDatabase
+import com.personal.financetracker.data.remote.DeletionSyncRepository
+import com.personal.financetracker.data.remote.MetadataSyncRepository
+import com.personal.financetracker.data.remote.PullSyncRepository
 import com.personal.financetracker.data.remote.TransactionRepository
 import com.personal.financetracker.data.remote.TransactionRepository.SyncOutcome
 import com.personal.financetracker.util.AppConfig
@@ -21,24 +24,67 @@ class SyncWorker(
 
     override suspend fun doWork(): Result {
         val db = AppDatabase.getInstance(applicationContext)
-        return when (val outcome = TransactionRepository(db).syncTransactions()) {
-            is SyncOutcome.Success -> {
-                Log.d(TAG, "Sync complete: ${outcome.count} transactions pushed")
-                SyncState.recordSuccess(applicationContext, outcome.count)
-                pruneOldLocalRows(db)
+
+        // 1. PUSH upserts (creates + updates) first so any pending local writes
+        //    reach Neon before we mirror back.
+        val txnOutcome = TransactionRepository(db).syncTransactions()
+        val metaOutcome = MetadataSyncRepository(db, applicationContext).syncAll()
+        // 2. DRAIN the hard-delete outbox. Must run after push (so an update
+        //    we're about to also delete doesn't get re-inserted on the next
+        //    pull) and before pull (so the deleted rows aren't refetched).
+        val deletionOutcome = DeletionSyncRepository(db).drainPendingDeletions()
+        // 3. PULL last so Room becomes a current mirror of Neon.
+        val pullOutcome = PullSyncRepository(db, applicationContext).pullAll()
+
+        val combined = combine(txnOutcome, metaOutcome, deletionOutcome, pullOutcome)
+        return when (combined) {
+            is CombinedOutcome.Success -> {
+                Log.d(TAG, "Sync complete: pushed ${combined.txnCount}+${combined.metaCount}, deleted ${combined.deletedCount}, pulled ${combined.pulledCount}")
+                SyncState.recordSuccess(applicationContext, combined.txnCount + combined.metaCount)
+                // Note: deliberately do NOT prune local rows. With the
+                // local-mirror-of-Neon model, anything we prune would be
+                // re-fetched on the next pull. Room grows monotonically to
+                // match Neon — that's the intended state.
                 Result.success()
             }
-            is SyncOutcome.TransientFailure -> {
-                Log.w(TAG, "Transient sync failure (${outcome.reason}), will retry")
-                SyncState.recordTransientFailure(applicationContext, outcome.reason)
+            is CombinedOutcome.Transient -> {
+                Log.w(TAG, "Transient sync failure (${combined.reason}), will retry")
+                SyncState.recordTransientFailure(applicationContext, combined.reason)
                 Result.retry()
             }
-            is SyncOutcome.PermanentFailure -> {
-                Log.e(TAG, "Permanent sync failure (${outcome.reason})")
-                SyncState.recordPermanentFailure(applicationContext, outcome.reason)
+            is CombinedOutcome.Permanent -> {
+                Log.e(TAG, "Permanent sync failure (${combined.reason})")
+                SyncState.recordPermanentFailure(applicationContext, combined.reason)
                 Result.failure()
             }
         }
+    }
+
+    private sealed class CombinedOutcome {
+        data class Success(val txnCount: Int, val metaCount: Int, val deletedCount: Int, val pulledCount: Int) : CombinedOutcome()
+        data class Transient(val reason: String) : CombinedOutcome()
+        data class Permanent(val reason: String) : CombinedOutcome()
+    }
+
+    private fun combine(
+        txn: TransactionRepository.SyncOutcome,
+        meta: MetadataSyncRepository.SyncOutcome,
+        del: DeletionSyncRepository.DeleteOutcome,
+        pull: PullSyncRepository.PullOutcome
+    ): CombinedOutcome {
+        if (txn is SyncOutcome.PermanentFailure) return CombinedOutcome.Permanent("transactions:${txn.reason}")
+        if (meta is MetadataSyncRepository.SyncOutcome.PermanentFailure) return CombinedOutcome.Permanent("metadata:${meta.reason}")
+        if (del is DeletionSyncRepository.DeleteOutcome.PermanentFailure) return CombinedOutcome.Permanent("deletions:${del.reason}")
+        if (pull is PullSyncRepository.PullOutcome.PermanentFailure) return CombinedOutcome.Permanent("pull:${pull.reason}")
+        if (txn is SyncOutcome.TransientFailure) return CombinedOutcome.Transient("transactions:${txn.reason}")
+        if (meta is MetadataSyncRepository.SyncOutcome.TransientFailure) return CombinedOutcome.Transient("metadata:${meta.reason}")
+        if (del is DeletionSyncRepository.DeleteOutcome.TransientFailure) return CombinedOutcome.Transient("deletions:${del.reason}")
+        if (pull is PullSyncRepository.PullOutcome.TransientFailure) return CombinedOutcome.Transient("pull:${pull.reason}")
+        val txnCount = (txn as? SyncOutcome.Success)?.count ?: 0
+        val metaCount = (meta as? MetadataSyncRepository.SyncOutcome.Success)?.pushed ?: 0
+        val deletedCount = (del as? DeletionSyncRepository.DeleteOutcome.Success)?.deleted ?: 0
+        val pulledCount = (pull as? PullSyncRepository.PullOutcome.Success)?.pulled ?: 0
+        return CombinedOutcome.Success(txnCount, metaCount, deletedCount, pulledCount)
     }
 
     private suspend fun pruneOldLocalRows(db: AppDatabase) {

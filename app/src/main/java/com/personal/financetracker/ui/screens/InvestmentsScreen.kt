@@ -14,8 +14,10 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.personal.financetracker.data.HardDeletionService
 import com.personal.financetracker.data.local.AppDatabase
 import com.personal.financetracker.data.local.entity.Investment
+import com.personal.financetracker.ui.components.DeleteConfirmDialog
 import com.personal.financetracker.ui.theme.Expense
 import com.personal.financetracker.ui.theme.Income
 import com.personal.financetracker.util.FormatUtils
@@ -119,6 +121,8 @@ fun InvestmentsScreen(db: AppDatabase, onBack: () -> Unit) {
         )
     }
 
+    var deletingInvestment by remember { mutableStateOf<Investment?>(null) }
+
     editInvestment?.let { inv ->
         InvestmentDialog(
             initial = inv,
@@ -138,8 +142,19 @@ fun InvestmentsScreen(db: AppDatabase, onBack: () -> Unit) {
                 editInvestment = null
             },
             onDelete = {
-                scope.launch { db.investmentDao().delete(inv) }
+                deletingInvestment = inv
                 editInvestment = null
+            }
+        )
+    }
+
+    deletingInvestment?.let { inv ->
+        DeleteConfirmDialog(
+            itemDescription = "the investment \"${inv.name}\"",
+            onDismiss = { deletingInvestment = null },
+            onConfirm = {
+                scope.launch { HardDeletionService.deleteInvestment(db, inv) }
+                deletingInvestment = null
             }
         )
     }

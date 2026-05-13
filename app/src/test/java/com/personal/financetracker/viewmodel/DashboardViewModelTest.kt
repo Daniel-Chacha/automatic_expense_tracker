@@ -2,7 +2,6 @@ package com.personal.financetracker.viewmodel
 
 import app.cash.turbine.test
 import com.personal.financetracker.data.local.AppDatabase
-import com.personal.financetracker.data.local.dao.AccountDao
 import com.personal.financetracker.data.local.dao.BudgetDao
 import com.personal.financetracker.data.local.dao.CategoryDao
 import com.personal.financetracker.data.local.dao.DebtDao
@@ -68,7 +67,6 @@ class DashboardViewModelTest {
         val debtDao = mockk<DebtDao>(relaxed = true).apply {
             every { getActive() } returns flowOf(emptyList())
         }
-        val accountDao = mockk<AccountDao>(relaxed = true)
         return mockk<AppDatabase>(relaxed = true).apply {
             every { transactionDao() } returns txnDao
             every { categoryDao() } returns catDao
@@ -76,7 +74,6 @@ class DashboardViewModelTest {
             every { savingsGoalDao() } returns savingsDao
             every { investmentDao() } returns invDao
             every { debtDao() } returns debtDao
-            every { accountDao() } returns accountDao
         }
     }
 

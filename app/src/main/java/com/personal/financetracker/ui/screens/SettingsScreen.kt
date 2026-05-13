@@ -25,7 +25,6 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.personal.financetracker.BuildConfig
 import com.personal.financetracker.data.local.AppDatabase
-import com.personal.financetracker.data.local.entity.Account
 import com.personal.financetracker.data.local.entity.SmsSource
 import com.personal.financetracker.service.SyncWorker
 import com.personal.financetracker.ui.theme.Expense
@@ -42,13 +41,10 @@ import kotlinx.coroutines.launch
 fun SettingsScreen(db: AppDatabase) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
-    val accounts by db.accountDao().getAll().collectAsStateWithLifecycle(emptyList())
     val smsSources by db.smsSourceDao().getAll().collectAsStateWithLifecycle(emptyList())
     val unsyncedCount by db.transactionDao().getUnsyncedCountFlow().collectAsStateWithLifecycle(0)
     val syncSnapshot by SyncState.observe(context).collectAsStateWithLifecycle(SyncState.read(context))
 
-    var showAddAccount by remember { mutableStateOf(false) }
-    var editAccount by remember { mutableStateOf<Account?>(null) }
     var showAddSms by remember { mutableStateOf(false) }
     var editSms by remember { mutableStateOf<SmsSource?>(null) }
     var showExportDialog by remember { mutableStateOf(false) }
@@ -60,30 +56,6 @@ fun SettingsScreen(db: AppDatabase) {
     ) {
         item { SyncStatusCard(snapshot = syncSnapshot, pending = unsyncedCount) }
 
-        item {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Text("Accounts", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
-                IconButton(onClick = { showAddAccount = true }) { Icon(Icons.Default.Add, "Add account") }
-            }
-        }
-        items(accounts, key = { it.id }) { acc ->
-            Surface(shape = RoundedCornerShape(12.dp), color = MaterialTheme.colorScheme.surfaceVariant) {
-                Row(Modifier.fillMaxWidth().padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
-                    Column(Modifier.weight(1f)) {
-                        Text(acc.name, fontWeight = FontWeight.Medium)
-                        Text("Balance: ${FormatUtils.formatAmount(acc.balance)}", style = MaterialTheme.typography.bodySmall)
-                    }
-                    IconButton(onClick = { editAccount = acc }) {
-                        Icon(Icons.Default.Edit, "Edit")
-                    }
-                    IconButton(onClick = { scope.launch { db.accountDao().delete(acc) } }) {
-                        Icon(Icons.Default.Delete, "Delete", tint = MaterialTheme.colorScheme.error.copy(0.7f))
-                    }
-                }
-            }
-        }
-
-        item { Spacer(Modifier.height(8.dp)) }
         item {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text("SMS Sources", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
@@ -136,28 +108,6 @@ fun SettingsScreen(db: AppDatabase) {
         }
     }
 
-    if (showAddAccount) {
-        AccountDialog(
-            initial = null,
-            onDismiss = { showAddAccount = false },
-            onSave = { name, balance ->
-                scope.launch { db.accountDao().insert(Account(name = name, balance = balance)) }
-                showAddAccount = false
-            }
-        )
-    }
-
-    editAccount?.let { acc ->
-        AccountDialog(
-            initial = acc,
-            onDismiss = { editAccount = null },
-            onSave = { name, balance ->
-                scope.launch { db.accountDao().insert(acc.copy(name = name, balance = balance)) }
-                editAccount = null
-            }
-        )
-    }
-
     if (showAddSms) {
         SmsSourceDialog(
             initial = null,
@@ -188,7 +138,6 @@ fun SettingsScreen(db: AppDatabase) {
                     val cutoff = CsvExporter.cutoffMillis(unit, count)
                     val all = db.transactionDao().getAll().first().filter { it.transactedAt >= cutoff }
                     val cats = db.categoryDao().getAll().first()
-                    val accs = db.accountDao().getAll().first()
                     val budgets = db.budgetDao().getByMonth(0L).first()
                         .ifEmpty { db.budgetDao().getByMonth(System.currentTimeMillis()).first() }
                     val savings = db.savingsGoalDao().getAll().first().filter { it.createdAt >= cutoff }
@@ -199,7 +148,6 @@ fun SettingsScreen(db: AppDatabase) {
                     val payload = CsvExporter.ExportPayload(
                         transactions = all,
                         categories = cats,
-                        accounts = accs,
                         budgets = budgets,
                         savingsGoals = savings,
                         investments = investments,
@@ -255,49 +203,6 @@ private fun SyncStatusCard(snapshot: SyncState.Snapshot, pending: Int) {
             }
         }
     }
-}
-
-@Composable
-private fun AccountDialog(
-    initial: Account?,
-    onDismiss: () -> Unit,
-    onSave: (name: String, balanceCents: Int) -> Unit
-) {
-    var name by remember { mutableStateOf(initial?.name ?: "") }
-    var balanceText by remember {
-        mutableStateOf(initial?.let { String.format("%.2f", it.balance / 100.0) } ?: "")
-    }
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text(if (initial == null) "New Account" else "Edit Account") },
-        text = {
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                OutlinedTextField(
-                    value = name,
-                    onValueChange = { name = it },
-                    label = { Text("Name (e.g. M-Pesa, Airtel Money)") },
-                    singleLine = true
-                )
-                OutlinedTextField(
-                    value = balanceText,
-                    onValueChange = { balanceText = it.filter { c -> c.isDigit() || c == '.' } },
-                    label = { Text("Balance (KES)") },
-                    prefix = { Text("KES ") },
-                    keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(keyboardType = KeyboardType.Decimal),
-                    singleLine = true
-                )
-            }
-        },
-        confirmButton = {
-            TextButton(onClick = {
-                if (name.isNotBlank()) {
-                    val cents = ((balanceText.toDoubleOrNull() ?: 0.0) * 100).toInt()
-                    onSave(name, cents)
-                }
-            }) { Text("Save") }
-        },
-        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } }
-    )
 }
 
 @Composable

@@ -2,38 +2,39 @@
 -- Finance Tracker — Initial Schema (Neon Postgres)
 -- Single-user personal app, no auth, no RLS.
 -- Apply with: psql "$NEON_JDBC_URL" -f db/migrations/001_initial.sql
+--
+-- Deletions are HARD deletes — there are no soft-delete columns
+-- on any table. When the user confirms a delete in the app, the
+-- row is removed from both Room and (on next sync) Neon.
+--
+-- `updated_at` columns are sync watermarks, not soft-delete
+-- markers — the cloud-mirror pull uses them to fetch only rows
+-- changed since the last successful pull.
 -- ============================================================
 
 -- ---------------------- ENUM TYPES --------------------------
 
-CREATE TYPE transaction_type AS ENUM ('INCOME', 'EXPENSE');
+CREATE TYPE transaction_type   AS ENUM ('INCOME', 'EXPENSE');
 CREATE TYPE transaction_status AS ENUM ('CONFIRMED', 'UNCATEGORIZED', 'PENDING_REVIEW');
-CREATE TYPE debt_direction AS ENUM ('LENT', 'BORROWED');
+CREATE TYPE debt_direction     AS ENUM ('LENT', 'BORROWED');
+CREATE TYPE snapshot_kind      AS ENUM ('SAVINGS', 'INVESTMENT');
 
 -- ---------------------- LOOKUP TABLES -----------------------
 
 CREATE TABLE categories (
-    id          smallserial PRIMARY KEY,
+    id          smallserial  PRIMARY KEY,
     name        varchar(50)  NOT NULL UNIQUE,
     icon        varchar(30),
     color       char(7),
     is_income   boolean      NOT NULL DEFAULT false,
-    created_at  timestamptz  NOT NULL DEFAULT now()
-);
-
-CREATE TABLE accounts (
-    id          smallserial PRIMARY KEY,
-    name        varchar(50)  NOT NULL UNIQUE,
-    icon        varchar(30),
-    balance     integer      NOT NULL DEFAULT 0,
-    created_at  timestamptz  NOT NULL DEFAULT now()
+    created_at  timestamptz  NOT NULL DEFAULT now(),
+    updated_at  timestamptz  NOT NULL DEFAULT now()
 );
 
 CREATE TABLE sms_sources (
-    id          smallserial PRIMARY KEY,
+    id          smallserial  PRIMARY KEY,
     sender      varchar(30)  NOT NULL UNIQUE,
     label       varchar(50),
-    account_id  smallint     REFERENCES accounts(id) ON DELETE SET NULL,
     is_active   boolean      NOT NULL DEFAULT true,
     created_at  timestamptz  NOT NULL DEFAULT now()
 );
@@ -46,7 +47,6 @@ CREATE TABLE transactions (
     status                  transaction_status NOT NULL DEFAULT 'UNCATEGORIZED',
     amount                  integer            NOT NULL,
     category_id             smallint           REFERENCES categories(id) ON DELETE SET NULL,
-    account_id              smallint           REFERENCES accounts(id) ON DELETE SET NULL,
     description             varchar(150),
     transacted_at           timestamptz        NOT NULL DEFAULT now(),
     meta                    jsonb,
@@ -55,13 +55,15 @@ CREATE TABLE transactions (
     dedup_hash              varchar(80) UNIQUE,
     created_at              timestamptz        NOT NULL DEFAULT now(),
     last_sync_attempt_at    timestamptz,
-    sync_failures           integer            NOT NULL DEFAULT 0
+    sync_failures           integer            NOT NULL DEFAULT 0,
+    updated_at              timestamptz        NOT NULL DEFAULT now()
 );
 
 CREATE INDEX idx_txn_transacted_at ON transactions (transacted_at);
 CREATE INDEX idx_txn_category_id   ON transactions (category_id);
 CREATE INDEX idx_txn_counterparty  ON transactions (counterparty);
 CREATE INDEX idx_txn_reference     ON transactions (reference);
+CREATE INDEX idx_txn_updated_at    ON transactions (updated_at);
 
 -- Reference uniqueness only enforced when reference is provided.
 CREATE UNIQUE INDEX idx_txn_ref_time
@@ -71,27 +73,29 @@ CREATE UNIQUE INDEX idx_txn_ref_time
 -- ---------------------- BUDGETS -----------------------------
 
 CREATE TABLE budgets (
-    id          smallserial PRIMARY KEY,
-    category_id smallint    NOT NULL REFERENCES categories(id) ON DELETE CASCADE,
-    month       date        NOT NULL,
-    amount      integer     NOT NULL,
+    id          smallserial  PRIMARY KEY,
+    category_id smallint     NOT NULL REFERENCES categories(id) ON DELETE CASCADE,
+    month       date         NOT NULL,
+    amount      integer      NOT NULL,
+    updated_at  timestamptz  NOT NULL DEFAULT now(),
     UNIQUE (category_id, month)
 );
 
 -- ---------------------- SAVINGS & INVESTMENTS ---------------
 
 CREATE TABLE savings_goals (
-    id              smallserial PRIMARY KEY,
+    id              smallserial  PRIMARY KEY,
     name            varchar(80)  NOT NULL,
     target_amount   integer      NOT NULL,
     current_amount  integer      NOT NULL DEFAULT 0,
     deadline        date,
     is_completed    boolean      NOT NULL DEFAULT false,
-    created_at      timestamptz  NOT NULL DEFAULT now()
+    created_at      timestamptz  NOT NULL DEFAULT now(),
+    updated_at      timestamptz  NOT NULL DEFAULT now()
 );
 
 CREATE TABLE investments (
-    id              smallserial PRIMARY KEY,
+    id              smallserial  PRIMARY KEY,
     name            varchar(80)  NOT NULL,
     type            varchar(30),
     buy_in_amount   integer      NOT NULL,
@@ -111,10 +115,28 @@ CREATE TABLE debts (
     description varchar(150),
     is_settled  boolean        NOT NULL DEFAULT false,
     due_date    date,
-    created_at  timestamptz    NOT NULL DEFAULT now()
+    created_at  timestamptz    NOT NULL DEFAULT now(),
+    updated_at  timestamptz    NOT NULL DEFAULT now()
 );
 
 CREATE INDEX idx_debts_active ON debts (is_settled) WHERE is_settled = false;
+
+-- ---------------------- MONTHLY SNAPSHOTS -------------------
+-- One row per (year, month, kind). Populated by
+-- MonthlySnapshotWorker; used by the Dashboard's yearly chart
+-- to plot Savings and Investments month-by-month.
+
+CREATE TABLE monthly_snapshots (
+    id          serial         PRIMARY KEY,
+    year        integer        NOT NULL,
+    month       integer        NOT NULL CHECK (month BETWEEN 1 AND 12),
+    kind        snapshot_kind  NOT NULL,
+    amount      integer        NOT NULL,
+    recorded_at timestamptz    NOT NULL DEFAULT now(),
+    UNIQUE (year, month, kind)
+);
+
+CREATE INDEX idx_snapshots_year ON monthly_snapshots (year);
 
 -- ---------------------- SEED CATEGORIES ---------------------
 
@@ -129,6 +151,7 @@ INSERT INTO categories (name, icon, color, is_income) VALUES
     ('Education',        '📚', '#4A90D9', false),
     ('Airtime & Data',   '📱', '#F7DC6F', false),
     ('Transfers Out',    '📤', '#E67E22', false),
+    ('Investments',      '📈', '#C44DFF', false),
     ('Other Expense',    '📦', '#BDC3C7', false),
     ('Salary',           '💰', '#2ECC71', true),
     ('Freelance',        '💻', '#1ABC9C', true),
@@ -136,6 +159,9 @@ INSERT INTO categories (name, icon, color, is_income) VALUES
     ('Interest',         '🏦', '#27AE60', true),
     ('Other Income',     '💵', '#82E0AA', true);
 
+-- Sender strings match exactly how the user's carrier formats the
+-- SMS originating address. The app's findBySender query uses
+-- COLLATE NOCASE so future variations are tolerated automatically.
 INSERT INTO sms_sources (sender, label, is_active) VALUES
     ('MPESA',       'M-Pesa',       true),
-    ('AIRTELMONEY', 'Airtel Money', true);
+    ('airtelmoney', 'Airtel Money', true);

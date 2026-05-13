@@ -5,6 +5,7 @@ import com.personal.financetracker.data.local.AppDatabase
 import com.personal.financetracker.service.BudgetAlertWorker
 import com.personal.financetracker.service.ConnectivitySyncTrigger
 import com.personal.financetracker.service.DigestWorker
+import com.personal.financetracker.service.MonthlySnapshotWorker
 import com.personal.financetracker.service.SyncWorker
 
 class FinanceTrackerApp : Application() {
@@ -16,10 +17,17 @@ class FinanceTrackerApp : Application() {
         SyncWorker.schedule(this)
         DigestWorker.schedule(this)
         BudgetAlertWorker.schedule(this)
+        MonthlySnapshotWorker.schedule(this)
 
         // Trigger an immediate sync as soon as the device sees an
         // internet-capable network. The 15-minute periodic worker is the
         // safety net — this is the fast path.
         ConnectivitySyncTrigger.register(this)
+
+        // Kick a one-shot sync on every app start. On a fresh install this is
+        // what populates Room from Neon (the "restore after uninstall" path);
+        // on subsequent starts it just refreshes whatever's changed since the
+        // last successful pull. Runs in WorkManager — does not block startup.
+        SyncWorker.syncNow(this)
     }
 }

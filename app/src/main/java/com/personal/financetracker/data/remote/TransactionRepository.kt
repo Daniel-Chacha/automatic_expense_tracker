@@ -77,25 +77,31 @@ class TransactionRepository(private val db: AppDatabase) {
     }
 
     private fun upsertBatch(conn: Connection, rows: List<Transaction>): List<Int> {
+        // This UPSERT covers creates and updates only. Hard deletes are
+        // handled by DeletionSyncRepository, which drains the local
+        // pending_deletions outbox and issues DELETE FROM transactions
+        // WHERE id = ? against Neon.
         val sql = """
             INSERT INTO transactions
-                (id, type, status, amount, category_id, account_id,
+                (id, type, status, amount, category_id,
                  description, transacted_at, meta, reference, counterparty,
-                 dedup_hash, created_at, last_sync_attempt_at, sync_failures)
-            VALUES (?, ?::transaction_type, ?::transaction_status, ?, ?, ?,
-                    ?, ?, ?::jsonb, ?, ?, ?, ?, ?, ?)
+                 dedup_hash, created_at, last_sync_attempt_at, sync_failures,
+                 updated_at)
+            VALUES (?, ?::transaction_type, ?::transaction_status, ?, ?,
+                    ?, ?, ?::jsonb, ?, ?, ?, ?, ?, ?,
+                    ?)
             ON CONFLICT (id) DO UPDATE SET
                 type = EXCLUDED.type,
                 status = EXCLUDED.status,
                 amount = EXCLUDED.amount,
                 category_id = EXCLUDED.category_id,
-                account_id = EXCLUDED.account_id,
                 description = EXCLUDED.description,
                 transacted_at = EXCLUDED.transacted_at,
                 meta = EXCLUDED.meta,
                 reference = EXCLUDED.reference,
                 counterparty = EXCLUDED.counterparty,
-                dedup_hash = EXCLUDED.dedup_hash
+                dedup_hash = EXCLUDED.dedup_hash,
+                updated_at = EXCLUDED.updated_at
             RETURNING id
         """.trimIndent()
 
@@ -109,20 +115,20 @@ class TransactionRepository(private val db: AppDatabase) {
                     ps.setString(3, row.status.name)
                     ps.setInt(4, row.amount)
                     if (row.categoryId != null) ps.setInt(5, row.categoryId) else ps.setNull(5, java.sql.Types.SMALLINT)
-                    if (row.accountId != null) ps.setInt(6, row.accountId) else ps.setNull(6, java.sql.Types.SMALLINT)
-                    ps.setString(7, row.description)
-                    ps.setTimestamp(8, Timestamp(Instant.ofEpochMilli(row.transactedAt).toEpochMilli()))
-                    ps.setObject(9, jsonb(row.meta))
-                    ps.setString(10, row.reference)
-                    ps.setString(11, row.counterparty)
-                    ps.setString(12, row.dedupHash)
-                    ps.setTimestamp(13, Timestamp(Instant.ofEpochMilli(row.createdAt).toEpochMilli()))
+                    ps.setString(6, row.description)
+                    ps.setTimestamp(7, Timestamp(Instant.ofEpochMilli(row.transactedAt).toEpochMilli()))
+                    ps.setObject(8, jsonb(row.meta))
+                    ps.setString(9, row.reference)
+                    ps.setString(10, row.counterparty)
+                    ps.setString(11, row.dedupHash)
+                    ps.setTimestamp(12, Timestamp(Instant.ofEpochMilli(row.createdAt).toEpochMilli()))
                     if (row.lastSyncAttemptAt != null) {
-                        ps.setTimestamp(14, Timestamp(Instant.ofEpochMilli(row.lastSyncAttemptAt).toEpochMilli()))
+                        ps.setTimestamp(13, Timestamp(Instant.ofEpochMilli(row.lastSyncAttemptAt).toEpochMilli()))
                     } else {
-                        ps.setNull(14, java.sql.Types.TIMESTAMP)
+                        ps.setNull(13, java.sql.Types.TIMESTAMP)
                     }
-                    ps.setInt(15, row.syncFailures)
+                    ps.setInt(14, row.syncFailures)
+                    ps.setTimestamp(15, Timestamp(Instant.ofEpochMilli(row.updatedAt).toEpochMilli()))
 
                     ps.executeQuery().use { rs ->
                         if (rs.next()) landed += rs.getInt(1)

@@ -60,19 +60,20 @@ class SmsReceiver : BroadcastReceiver() {
                 }
 
                 val suggestedCategory = CategorySuggester.suggest(parsed.counterparty, db)
+                val isAutoCategorized = suggestedCategory != null
+                // We deliberately do NOT store the SMS balance — Fuliza
+                // makes that figure unreliable.
                 val meta = TransactionMeta(
                     ref = parsed.reference,
-                    balance = parsed.balance,
                     counterparty = parsed.counterparty,
                     raw = body
                 ).encode()
 
                 val transaction = Transaction(
                     type = parsed.type,
-                    status = if (suggestedCategory != null) TransactionStatus.CONFIRMED else TransactionStatus.UNCATEGORIZED,
+                    status = if (isAutoCategorized) TransactionStatus.CONFIRMED else TransactionStatus.UNCATEGORIZED,
                     amount = parsed.amount,
                     categoryId = suggestedCategory,
-                    accountId = smsSource.accountId,
                     transactedAt = now,
                     meta = meta,
                     reference = parsed.reference,
@@ -81,19 +82,32 @@ class SmsReceiver : BroadcastReceiver() {
                 )
                 val transactionId = db.transactionDao().insert(transaction).toInt()
 
-                parsed.balance?.let { balance ->
-                    smsSource.accountId?.let { accountId ->
-                        db.accountDao().updateBalance(accountId, balance)
+                // Overlay only fires when human input is genuinely needed.
+                // If the suggester (special rule OR history) already picked a
+                // category, skip the overlay and let the notification do the
+                // talking.
+                if (!isAutoCategorized) {
+                    val overlayIntent = Intent(context, OverlayService::class.java).apply {
+                        putExtra(OverlayService.EXTRA_TRANSACTION_ID, transactionId)
+                        putExtra(OverlayService.EXTRA_AMOUNT, parsed.amount)
+                        putExtra(OverlayService.EXTRA_TYPE, parsed.type.name)
+                        putExtra(OverlayService.EXTRA_COUNTERPARTY, parsed.counterparty)
                     }
+                    context.startService(overlayIntent)
                 }
 
-                val overlayIntent = Intent(context, OverlayService::class.java).apply {
-                    putExtra(OverlayService.EXTRA_TRANSACTION_ID, transactionId)
-                    putExtra(OverlayService.EXTRA_AMOUNT, parsed.amount)
-                    putExtra(OverlayService.EXTRA_TYPE, parsed.type.name)
-                    putExtra(OverlayService.EXTRA_COUNTERPARTY, parsed.counterparty)
-                }
-                context.startService(overlayIntent)
+                // Always post a notification, but its color and wording
+                // reflect whether the user needs to act on it.
+                val categoryName = suggestedCategory?.let { db.categoryDao().getById(it)?.name }
+                TransactionNotification.show(
+                    context = context,
+                    transactionId = transactionId,
+                    amount = parsed.amount,
+                    type = parsed.type,
+                    counterparty = parsed.counterparty,
+                    needsAttention = !isAutoCategorized,
+                    categoryName = categoryName
+                )
 
                 // Push the row to Neon immediately if online; WorkManager
                 // will defer this if the device is currently offline.
